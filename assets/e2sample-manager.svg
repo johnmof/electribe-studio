@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title>e2sample-manager</title>
+  <rect width="512" height="512" rx="96" fill="#20242b"/>
+  <rect x="72" y="72" width="368" height="368" rx="48" fill="#303741" stroke="#78dce8" stroke-width="16"/>
+  <path d="M128 304h48v-96h-48zm70 56h48V152h-48zm70-24h48V176h-48zm70-64h48v-32h-48z" fill="#78dce8"/>
+  <circle cx="362" cy="154" r="26" fill="#ff6188"/>
+</svg>

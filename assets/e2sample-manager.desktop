@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=e2sample-manager
+Comment=Manage samples for the Korg Electribe 2 Sampler
+Exec=e2sample-manager
+Icon=e2sample-manager
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=true

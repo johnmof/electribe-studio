@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "e2sample-manager"
+version = "0.2.0"
+description = "Windows sample manager and pattern editor for Electribe 2 Sampler and Hacktribe"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+dependencies = [
+    "PySide6",
+    "numpy",
+    "soundfile",
+    "sounddevice",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-qt",
+    "ruff",
+    "pyinstaller",
+]
+
+[project.scripts]
+e2sample-manager = "e2sample_manager.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra"
