@@ -1,8 +1,8 @@
 # Electribe Studio
 
-Deutscher Windows-Editor für **KORG Electribe 2 Sampler und Hacktribe**. Bearbeitet Samples und Patterns über SD-Karten-Dateien.
+Windows-Editor für **KORG Electribe 2 Sampler und Hacktribe**. Bearbeitet Samples und Patterns über SD-Karten-Dateien.
 
-## Windows starten
+## Windows 
 
 [Windows-Downloads](https://github.com/johnmof/electribe-studio/releases)
 
