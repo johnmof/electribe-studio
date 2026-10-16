@@ -194,10 +194,37 @@ def run_ui(bank_path: str | None = None) -> str:
             for slot in selected:
                 assert window.service.require_sample(slot).metadata.name == identities[slot][0]
             window.redo()
+        window.service.new_pattern()
+        window._refresh()
+        window.tabs.setCurrentIndex(1)
+        editor = window.pattern_editor
+        editor.select_bar(0)
+        editor.grid.setCurrentCell(0, 0)
+        app.processEvents()
+        cell = editor.grid.visualItemRect(editor.grid.item(0, 0)).center()
+        QTest.mouseClick(editor.grid.viewport(), Qt.LeftButton, pos=cell)
+        assert window.service.patterns.step(0, 0, 0)["on"]
+        QTest.keyClick(editor.grid, Qt.Key_Space)
+        assert not window.service.patterns.step(0, 0, 0)["on"]
+        editor.click_step(0, 0)
+        editor.copy_bar()
+        editor.select_bar(3)
+        editor.grid.setCurrentCell(15, 0)
+        editor.paste_bar()
+        editor.shift_bar(1)
+        editor.transpose_bar(1)
+        assert window.service.patterns.step(0, 15, 49)["notes"][0] == 61
+        window.undo()
+        assert window.service.patterns.step(0, 15, 49)["notes"][0] == 60
+        window.service.save_patterns(folder / "pattern-workflow.e2spat")
+        assert PatternFile.load(folder / "pattern-workflow.e2spat").step(0, 15, 49)["on"]
         window.close()
         assert testers and errors  # Invalid tune was rejected without losing the editor.
-    return "PASS: 36 bank changes, delegate edits, invalid values, undo/redo and waveform trim." + (
-        " Supplied bank: slot-905 cycles and sparse selection with names/audio passed."
-        if bank_path
-        else ""
+    return (
+        "PASS: 36 bank changes, delegate edits, undo/redo, waveform trim and pattern workflow."
+        + (
+            " Supplied bank: slot-905 cycles and sparse selection with names/audio passed."
+            if bank_path
+            else ""
+        )
     )

@@ -45,6 +45,9 @@ Nur geladene Sampler-Patterns werden angepasst. Nicht geöffnete Pattern-Dateien
 
 ![Patterns](docs/images/patterns.png)
 
+- Neu in 0.6.0: übersichtliches Raster mit Sample-Namen je Part, Notennamen (C4 = MIDI 60), Vierer-Gruppen und eigener Seitenleiste für Part und Step. Taktwechsel über vier direkte Schaltflächen; Pattern- und Sample-Auswahl sind durchsuchbar.
+- Ein Klick schaltet den Step an/aus. Pfeiltasten wählen einen Step, Leertaste schaltet ihn. Rechts lassen sich bis zu vier MIDI-Noten, Gate, Velocity und Part-Einstellungen bearbeiten. Die Sample-Auswahl zeigt die Namen aus der geladenen Bank.
+- Für den gewählten **Part und Takt**: kopieren/einfügen, einen Step zyklisch links/rechts verschieben, um einen Halbton (HT) transponieren oder Steps ausschalten. Einfügen übernimmt nur die unterstützten Step-Daten; Motion und Part-Einstellungen bleiben am Ziel. Jede Änderung lässt sich rückgängig machen. Transponieren außerhalb MIDI 0–127 wird vollständig blockiert. Takte oberhalb der Pattern-Länge bleiben in der Datei erhalten.
 - Einzelpatterns `.e2spat` / `.e2pat` und 250er-Banken `.e2sallpat` / `.e2allpat`.
 - Neue Sampler-Patterns, 16 Parts × 64 Steps in vier Takten.
 - Vier MIDI-Noten je Step, Velocity, Gate und Trigger.
@@ -53,7 +56,7 @@ Nur geladene Sampler-Patterns werden angepasst. Nicht geöffnete Pattern-Dateien
 - Part-Takt leeren und Einzelpatterns aus einer Bank exportieren.
 - Unbearbeitete Bytes, einschließlich Motion- und Effekt-Daten, bleiben erhalten.
 
-Kästchen schalten Steps an/aus. Eine Zelle auswählen, um unten deren Noten zu bearbeiten. Felder werden mit Enter oder beim Verlassen übernommen. MIDI-Noten: 0–127, „Aus“ für leere Notenplätze. Strg+S speichert den aktiven Bereich, Strg+Z macht Änderungen rückgängig.
+Ein Step wird direkt im Raster geschaltet und rechts bearbeitet. Felder werden mit Enter oder beim Verlassen übernommen. MIDI-Noten: 0–127, „Aus“ für leere Notenplätze. Strg+S speichert den aktiven Bereich, Strg+Z macht Änderungen rückgängig.
 
 Synth-Patterns sind editierbar; ihre Klangzuordnung wird nicht automatisch in Sampler-Zuordnungen konvertiert. Automatisches Remapping setzt eine Sampler-Pattern-Datei voraus.
 

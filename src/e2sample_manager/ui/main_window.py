@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTabWidget,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -246,6 +247,12 @@ class MainWindow(QMainWindow):
         toolbar.addActions((self.undo_action, self.redo_action, self.delete_action))
         toolbar.addSeparator()
         toolbar.addActions((self.play_action, self.stop_action))
+        for action in (self.undo_action, self.redo_action):
+            button = QToolButton()
+            button.setDefaultAction(action)
+            self.pattern_editor.file_toolbar.insertWidget(
+                self.pattern_editor.file_toolbar.count() - 1, button
+            )
         row = QHBoxLayout()
         for action in (
             self.waveform_action,
@@ -712,9 +719,9 @@ class MainWindow(QMainWindow):
             self._refresh()
 
     def _changed(self) -> None:
-        self._refresh(reset_table=False)
+        self._refresh(reset_table=False, refresh_patterns=self.sender() is not self.pattern_editor)
 
-    def _refresh(self, *, reset_table: bool = True) -> None:
+    def _refresh(self, *, reset_table: bool = True, refresh_patterns: bool = True) -> None:
         if reset_table:
             self.table.refresh()
         count = len(self.service.library.samples)
@@ -730,7 +737,8 @@ class MainWindow(QMainWindow):
         )
         self.undo_action.setEnabled(self.service.can_undo)
         self.redo_action.setEnabled(self.service.can_redo)
-        self.pattern_editor.refresh()
+        if refresh_patterns:
+            self.pattern_editor.refresh()
         ranges = "501–999" if self.service.profile == HACKTRIBE_PROFILE else "19–421 / 501–999"
         self.profile_label.setText(f"{self.service.profile.name.upper()}  ·  SAMPLE-SLOTS {ranges}")
         self.korg_profile_action.setChecked(self.service.profile == KORG_PROFILE)
@@ -764,6 +772,7 @@ class MainWindow(QMainWindow):
         self.export_all_action.setEnabled(bool(self.service.library.samples))
 
     def _tab_changed(self, index: int) -> None:
+        self.findChild(QToolBar, "mainToolbar").setVisible(index == 0)
         self.brand_title.setVisible(index == 0)
         self.brand_subtitle.setVisible(index == 0)
         for action in (

@@ -8,6 +8,12 @@ QToolBar { border: 0; spacing: 5px; padding: 7px; }
 QToolButton, QPushButton { background: #26364b; border: 1px solid #3a4b63;
     border-radius: 5px; padding: 7px 12px; }
 QToolButton:hover, QPushButton:hover { background: #30475f; border-color: #5fc8bb; }
+QPushButton:checked { background: #286d65; color: #ffffff; border-color: #7ce3d3; }
+QGroupBox { border: 1px solid #34465e; border-radius: 7px; margin-top: 14px;
+    padding: 16px 10px 10px 10px; font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; left: 12px; color: #7ce3d3; }
+QScrollArea { border: 0; }
+QSplitter::handle { background: #2d3d52; width: 4px; }
 QToolButton:disabled, QPushButton:disabled { color: #69798e;
     background: #1b2737; border-color: #29384b; }
 QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {
