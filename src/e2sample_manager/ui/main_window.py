@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QTabWidget,
@@ -164,6 +165,12 @@ class MainWindow(QMainWindow):
             "Bereich verschieben …", self.move_range, "Ctrl+M", name="actionMoveRange"
         )
         self.mono_action = self._action("Auswahl zu Mono", self.convert_mono, name="actionMono")
+        self.normalize_action = self._action(
+            "Auswahl normalisieren (−1 dB)", self.normalize_selected, name="actionNormalize"
+        )
+        self.duplicates_action = self._action(
+            "Identische Audiodaten finden …", self.find_duplicates, name="actionDuplicates"
+        )
         self.replace_action = self._action(
             "Sample ersetzen …", self.replace_sample, name="actionReplace"
         )
@@ -197,6 +204,8 @@ class MainWindow(QMainWindow):
             (self.play_action, self.stop_action, self.waveform_action, self.slice_action)
         )
         sample_menu.addActions((self.mono_action, self.replace_action))
+        sample_menu.addSeparator()
+        sample_menu.addActions((self.normalize_action, self.duplicates_action))
         profile_menu = self.menuBar().addMenu("&Profil")
         profile_menu.addActions((self.korg_profile_action, self.hack_profile_action))
         profile_menu.addSeparator()
@@ -338,6 +347,51 @@ class MainWindow(QMainWindow):
         slots = self.table.selected_slots()
         if slots and self._guard("Mono-Konvertierung", lambda: self.service.convert_mono(slots)):
             self._refresh()
+
+    def normalize_selected(self) -> None:
+        slots = self.table.selected_slots()
+        if not slots:
+            return
+
+        def operation() -> None:
+            count = self.service.normalize_samples(slots)
+            self._refresh()
+            self.statusBar().showMessage(
+                f"{count} Samples auf −1 dB normalisiert. Rückgängig mit Strg+Z.", 7000
+            )
+
+        self._guard("Normalisieren", operation)
+
+    def find_duplicates(self) -> None:
+        groups = self.service.find_duplicate_audio()
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Identische Audiodaten")
+        dialog.resize(580, 400)
+        layout = QVBoxLayout(dialog)
+        hint = QLabel(
+            f"{len(groups)} Gruppen mit identischen Audiodaten.\n"
+            "Namen, Loops, Slices und Pattern-Verweise können unterschiedlich sein.\n"
+            "Es wird nichts gelöscht."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        report = QPlainTextEdit()
+        report.setReadOnly(True)
+        report.setPlainText(
+            "\n\n".join(
+                "\n".join(
+                    f"{slot:03d}  {self.service.require_sample(slot).metadata.name}"
+                    for slot in slots
+                )
+                for slots in groups
+            )
+            or "Keine identischen Audiodaten gefunden."
+        )
+        layout.addWidget(report)
+        close = QPushButton("Schließen")
+        close.clicked.connect(dialog.accept)
+        layout.addWidget(close)
+        dialog.exec()
 
     def replace_sample(self) -> None:
         sample = self.table.current_sample()
@@ -549,6 +603,8 @@ class MainWindow(QMainWindow):
             action.setEnabled(has_current and samples_active)
         self.delete_action.setEnabled(bool(selected) and samples_active)
         self.mono_action.setEnabled(bool(selected) and samples_active)
+        self.normalize_action.setEnabled(bool(selected) and samples_active)
+        self.duplicates_action.setEnabled(bool(self.service.library.samples) and samples_active)
         self.replace_action.setEnabled(has_current and samples_active)
         self.move_action.setEnabled(bool(self.service.library.samples) and samples_active)
         self.export_all_action.setEnabled(bool(self.service.library.samples))

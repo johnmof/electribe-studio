@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import math
 import struct
 from collections.abc import Callable, Iterable
@@ -489,6 +490,39 @@ class LibraryService:
 
         self._change(operation)
 
+    def normalize_samples(self, slots: Iterable[int]) -> int:
+        """Normalize PCM peaks to -1 dBFS with linked stereo gain and one undo step."""
+        import numpy as np
+
+        updates = {}
+        target = round(32767 * 10 ** (-1 / 20))
+        for slot in dict.fromkeys(slots):
+            sample = self.require_sample(slot)
+            _ = sample.wave.pcm_format  # Validate PCM16 before processing.
+            pcm = np.frombuffer(sample.audio_data, dtype="<i2").astype(np.float64)
+            peak = np.max(np.abs(pcm), initial=0)
+            if peak == 0:
+                continue
+            data = np.rint(pcm * (target / peak)).clip(-32768, 32767).astype("<i2").tobytes()
+            if data != sample.audio_data:
+                updates[slot] = data
+        if updates:
+
+            def operation() -> None:
+                for slot, data in updates.items():
+                    self.require_sample(slot).audio_data = data
+
+            self._change(operation)
+        return len(updates)
+
+    def find_duplicate_audio(self) -> list[list[int]]:
+        """Find equal PCM and format; names and playback markers may differ."""
+        groups: dict[tuple, list[int]] = {}
+        for sample in sorted(self.library.samples, key=lambda item: item.metadata.slot):
+            key = (sample.wave.pcm_format, hashlib.sha256(sample.audio_data).digest())
+            groups.setdefault(key, []).append(sample.metadata.slot)
+        return [slots for slots in groups.values() if len(slots) > 1]
+
     def load_patterns(self, path: str | Path) -> None:
         patterns = PatternFile.load(path)
         self.patterns = patterns
@@ -562,3 +596,4 @@ class LibraryService:
             directory,
             include_markers=include_markers,
         )
+

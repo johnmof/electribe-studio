@@ -12,6 +12,8 @@ ZIP vollständig entpacken und `ElectribeStudio/ElectribeStudio.exe` starten. De
 
 ## Funktionen
 
+- Neu in 0.3.0: Auswahl auf −1 dBFS normalisieren (Menü **Sample**), gemeinsam pro Stereo-Paar und mit Undo. Stille bleibt unverändert; +12-dB-Geräteeinstellung bleibt separat aktiv. Dies gleicht Spitzenpegel an, nicht die wahrgenommene Lautheit.
+- Neu in 0.3.0: **Sample → Identische Audiodaten finden** zeigt doppelte PCM-Daten bei gleicher Kanalzahl und Samplerate. Namen und Wiedergabemarker können abweichen; es wird nichts automatisch gelöscht.
 - Sample-Banken `.all` öffnen, erstellen, zusammenführen und speichern.
 - WAV, AIFF und MP3 importieren, auch per Drag & Drop.
 - MONO/STEREO, Dauer und Speicherbedarf anzeigen; suchen und sortieren.
@@ -64,7 +66,7 @@ Sample-Pfade: `KORG/electribe sampler/Sample/e2sSample.all` beziehungsweise `KOR
 
 52 automatisierte Tests wurden unter Windows erfolgreich ausgeführt, einschließlich Datei-Roundtrips, Backups, Mono-Konvertierung, Bereichskollisionen, überlappenden Verschiebungen, Undo/Redo und Pattern-Bearbeitung. Eine öffentliche Hacktribe-Initialbank wurde zusätzlich bytegenau eingelesen und geschrieben. Ein eigener Selbsttest prüft den gebauten Windows-Programmordner.
 
-**Der Test an einer physischen Electribe steht noch aus.** Software- und Formatprüfungen ersetzen keinen Hardwaretest. Die erste Bank daher mit gesicherter SD-Karte prüfen.
+Version 0.2.0 wurde vom Anwender an seiner KORG getestet und als funktionierend gemeldet. Die Ergänzungen in 0.3.0 wurden automatisiert geprüft; ein eigener Hardwaretest dieser Ergänzungen und ein bestätigter Hacktribe-Hardwaretest stehen noch aus.
 
 Keine direkte USB/MIDI-Verbindung, Pattern-Audiovorschau oder Synthesizer-Emulation. Motion- und Effektparameter bleiben erhalten, haben aber keine eigenen Editoren. Audioimport erzeugt PCM16 mono/stereo; die Samplerate bleibt erhalten. Mehrkanaldateien werden zu Stereo gemischt. KORG-Slice-Metadaten bleiben innerhalb geöffneter `.all`-Banken erhalten; Standard-Audioimport übernimmt nur die unterstützten Cue-/Loop-Marker. Keine Werkssamples oder Firmware enthalten. Warnung ab 24 MiB, Dateiprüfung mit 26.214.396 Bytes Limit. Windows-Paket ohne Codesignatur und ohne Updater.
 
