@@ -12,6 +12,7 @@ ZIP vollständig entpacken und `ElectribeStudio/ElectribeStudio.exe` starten. De
 
 ## Funktionen
 
+- Stabilitätsupdate 0.4.1: sichere Tabellenaktualisierung beim Bankwechsel und Bearbeiten, Samplerate nur noch lesbar, Marker nach dem Trimmen ohne gegenseitige Feldänderungen neu laden. Ungültige PCM-Formate werden beim Einlesen abgewiesen. Fehlerprotokolle liegen unter `%LOCALAPPDATA%/ElectribeStudio/logs` (`application.log`, bei nativen Abstürzen nach Möglichkeit `native-crash.log`).
 - Neu in 0.4.0: **Sample → Ein-/Ausblenden** bearbeitet die Auswahl mit linearen Fades von 0–100 ms (Vorgabe: je 5 ms). 0 deaktiviert eine Seite. Fades liegen am eingestellten Wiedergabestart/-ende, behalten Stereo-Verhältnis und Marker und lassen sich gemeinsam rückgängig machen. Bei kurzen Samples wird die Dauer begrenzt; Überlappungen werden multipliziert. Loop-Übergänge und einzelne Slice-Grenzen werden nicht automatisch geglättet.
 - Neu in 0.4.0: **Sample → Sample-Verwendung anzeigen** listet für die Auswahl Pattern-Nummer, Name, Part und Mute-Status. Zuerst die passende Sampler-Pattern-Datei laden. Auch leere/stumme Parts zählen als Zuordnung. Andere Dateien bleiben unbekannt; Synth-Patterns werden nicht als Sample-Verwendung ausgewertet. Vor Löschen/Ersetzen erscheint bei gefundenen Zuordnungen eine Warnung.
 - Neu in 0.3.0: Auswahl auf −1 dBFS normalisieren (Menü **Sample**), gemeinsam pro Stereo-Paar und mit Undo. Stille bleibt unverändert; +12-dB-Geräteeinstellung bleibt separat aktiv. Dies gleicht Spitzenpegel an, nicht die wahrgenommene Lautheit.

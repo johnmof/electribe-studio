@@ -26,6 +26,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the GUI, optionally opening the first positional file path."""
 
     arguments = list(sys.argv if argv is None else argv)
+    from e2sample_manager.diagnostics import install
+
+    if "--ui-self-test" in arguments:
+        from e2sample_manager.selftest import run_ui
+
+        report = run_ui()
+        destination = next(
+            (a.split("=", 1)[1] for a in arguments if a.startswith("--self-test-report=")), None
+        )
+        if destination:
+            Path(destination).write_text(report, encoding="utf-8")
+        if sys.stdout is not None:
+            print(report)
+        return 0
     if "--self-test" in arguments:
         from e2sample_manager.selftest import run
 
@@ -41,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if sys.stdout is not None:
             print(report)
         return result
+    install()
     QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )

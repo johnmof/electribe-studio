@@ -132,6 +132,8 @@ class WaveFile:
             raise FormatError("WAVE must be mono or stereo")
         if sample_rate == 0 or block_align == 0 or bits == 0:
             raise FormatError("WAVE fmt contains a zero sample rate/alignment/bit depth")
+        if bits != 16 or block_align != channels * 2:
+            raise FormatError("Electribe sample editing requires valid 16-bit PCM frames")
         if len(self.require_chunk(b"data").data) % block_align:
             raise FormatError("WAVE data length is not a multiple of block alignment")
         korg = self.require_chunk(b"korg")

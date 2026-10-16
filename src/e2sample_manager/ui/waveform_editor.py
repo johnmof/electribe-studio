@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from e2sample_manager.domain import Sample
+from e2sample_manager.formats import FormatError
 from e2sample_manager.services import AudioService, LibraryService, ServiceError
 
 
@@ -168,7 +169,7 @@ class WaveformEditorDialog(QDialog):
         self.waveform.markersChanged.connect(self._set_markers)
         self.scroll.valueChanged.connect(self._scroll)
         for spin in (self.start, self.loop, self.end):
-            spin.valueChanged.connect(self._spins_changed)
+            spin.editingFinished.connect(self._spins_changed)
         play.clicked.connect(lambda: self._play(False))
         loop.clicked.connect(lambda: self._play(True))
         stop.clicked.connect(audio.stop)
@@ -183,9 +184,16 @@ class WaveformEditorDialog(QDialog):
     def _load_values(self) -> None:
         align = self.sample.wave.pcm_format[2]
         metadata = self.sample.metadata
-        self.start.setValue(metadata.start // align)
-        self.loop.setValue(metadata.loop_start // align)
-        self.end.setValue((metadata.start + metadata.end) // align)
+        values = (
+            metadata.start // align,
+            metadata.loop_start // align,
+            (metadata.start + metadata.end) // align,
+        )
+        for spin, value in zip((self.start, self.loop, self.end), values, strict=True):
+            previous = spin.blockSignals(True)
+            spin.setRange(0, max(0, self.waveform.frame_count - 1))
+            spin.setValue(value)
+            spin.blockSignals(previous)
 
     def _nearest_zero(self, frame: int) -> int:
         if not self.snap.isChecked():
@@ -213,12 +221,25 @@ class WaveformEditorDialog(QDialog):
     def _apply(self) -> None:
         align = self.sample.wave.pcm_format[2]
         start, loop, end = self.start.value(), self.loop.value(), self.end.value()
-        self.service.update_metadata(
-            self.sample.metadata.slot,
-            start=start * align,
-            loop_start=loop * align,
-            end=(end - start) * align,
-        )
+        if (
+            self.sample.metadata.start,
+            self.sample.metadata.loop_start,
+            self.sample.metadata.end,
+        ) == (start * align, loop * align, (end - start) * align):
+            return
+        try:
+            self.sample = self.service.update_metadata(
+                self.sample.metadata.slot,
+                start=start * align,
+                loop_start=loop * align,
+                end=(end - start) * align,
+            )
+        except (ServiceError, FormatError) as exc:
+            self.sample = self.service.require_sample(self.sample.metadata.slot)
+            self.waveform.sample = self.sample
+            self._load_values()
+            QMessageBox.warning(self, "Marker ungültig", str(exc))
+            return
         self.waveform.update()
         self.changed.emit()
 
@@ -229,7 +250,7 @@ class WaveformEditorDialog(QDialog):
     def _play(self, loop: bool) -> None:
         try:
             self.audio.play_region(self.sample, loop=loop)
-        except ServiceError as exc:
+        except (ServiceError, FormatError) as exc:
             QMessageBox.warning(self, "Wiedergabe", str(exc))
 
     def _trim(self) -> None:
@@ -243,9 +264,10 @@ class WaveformEditorDialog(QDialog):
         ):
             return
         try:
+            self.audio.stop()
             self.service.trim(self.sample.metadata.slot)
             self._load_values()
             self.waveform.update()
             self.changed.emit()
-        except ServiceError as exc:
+        except (ServiceError, FormatError) as exc:
             QMessageBox.critical(self, "Trimmen fehlgeschlagen", str(exc))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -278,6 +279,7 @@ class MainWindow(QMainWindow):
             return False
 
     def _show_error(self, title: str, message: str) -> None:
+        logging.getLogger("electribe").error("%s: %s", title, message, exc_info=True)
         QMessageBox.critical(self, title, message or "Unbekannter Fehler.")
 
     def _confirm_discard(self) -> bool:
@@ -321,6 +323,7 @@ class MainWindow(QMainWindow):
     def open_path(self, path: str | Path) -> bool:
         if not self._confirm_discard():
             return False
+        self.audio.stop()
         result = self._guard("Öffnen fehlgeschlagen", lambda: self.service.open(path))
         if result:
             self._remember_dir("all", path)

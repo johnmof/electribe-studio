@@ -158,6 +158,10 @@ class LibraryService:
     def update_metadata(self, slot: int, **values: Any) -> Sample:
         """Atomically update editable metadata and retain undo support."""
 
+        if "sample_rate" in values:
+            raise ServiceError(
+                "Die Samplerate ist schreibgeschützt. Audio bei Bedarf neu importieren."
+            )
         sample = self.require_sample(slot)
 
         def operation() -> Sample:
@@ -167,16 +171,6 @@ class LibraryService:
                 if not hasattr(metadata, name):
                     raise ServiceError(f"Unbekanntes Metadatenfeld: {name}")
                 setattr(metadata, name, value)
-            if "sample_rate" in values:
-                fmt = bytearray(sample.wave.require_chunk(b"fmt ").data)
-                _, _, block_align = sample.wave.pcm_format
-                struct.pack_into("<I", fmt, 4, metadata.sample_rate)
-                struct.pack_into("<I", fmt, 8, metadata.sample_rate * block_align)
-                sample.wave.require_chunk(b"fmt ").data = bytes(fmt)
-                raw = bytearray(sample.wave.esli_chunk().data)
-                period = max(0, min(65535, round(63132 - math.log2(metadata.sample_rate) * 3072)))
-                struct.pack_into("<H", raw, 34, period)
-                sample.wave.replace_esli(bytes(raw))
             if metadata.slot != old_slot:
                 if not self.profile.accepts_slot(metadata.slot):
                     raise ServiceError(

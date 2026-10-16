@@ -39,12 +39,14 @@ class SampleTableModel(QAbstractTableModel):
     def __init__(self, service: LibraryService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.service = service
+        # Keep the old rows alive until Qt has been notified of a model reset.
+        self._samples = list(service.library.samples)
 
     def rowCount(self, _parent: QModelIndex | None = None) -> int:
-        return len(self.service.library.samples)
+        return 0 if _parent is not None and _parent.isValid() else len(self._samples)
 
     def columnCount(self, _parent: QModelIndex | None = None) -> int:
-        return len(self.HEADERS)
+        return 0 if _parent is not None and _parent.isValid() else len(self.HEADERS)
 
     def headerData(
         self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole
@@ -54,18 +56,20 @@ class SampleTableModel(QAbstractTableModel):
         return None
 
     def sample_at(self, row: int):
-        return self.service.library.samples[row]
+        return self._samples[row] if 0 <= row < len(self._samples) else None
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole) -> Any:
         if not index.isValid():
             return None
-        metadata = self.sample_at(index.row()).metadata
+        sample = self.sample_at(index.row())
+        if sample is None or not 0 <= index.column() < len(self.HEADERS):
+            return None
+        metadata = sample.metadata
         column = index.column()
         if role == Qt.CheckStateRole and column in (3, 4):
             value = metadata.one_shot if column == 3 else metadata.plus_12db
             return Qt.Checked if value else Qt.Unchecked
         if role in (Qt.DisplayRole, Qt.EditRole):
-            sample = self.sample_at(index.row())
             channels, rate, align = sample.wave.pcm_format
             values = (
                 metadata.slot,
@@ -86,17 +90,20 @@ class SampleTableModel(QAbstractTableModel):
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         flags = super().flags(index)
-        if index.column() in range(7):
+        if index.isValid() and index.column() in range(6):
             flags |= Qt.ItemIsEditable
         if index.column() in (3, 4):
             flags |= Qt.ItemIsUserCheckable
         return flags
 
     def setData(self, index: QModelIndex, value: Any, role: int = Qt.EditRole) -> bool:
-        if not index.isValid() or index.column() >= 7:
+        if not index.isValid() or not 0 <= index.column() < 6:
             return False
         sample = self.sample_at(index.row())
+        if sample is None:
+            return False
         slot = sample.metadata.slot
+        slots_before = [item.metadata.slot for item in self._samples]
         fields = ("slot", "name", "category", "one_shot", "plus_12db", "tune", "sample_rate")
         field = fields[index.column()]
         if role == Qt.CheckStateRole and index.column() in (3, 4):
@@ -111,16 +118,20 @@ class SampleTableModel(QAbstractTableModel):
             if field == "sample_rate":
                 if value < 1:
                     raise ValueError
-            self.service.update_metadata(slot, **{field: value})
-        except (ServiceError, ValueError) as exc:
+            self._samples[index.row()] = self.service.update_metadata(slot, **{field: value})
+        except (ServiceError, ValueError, OverflowError) as exc:
+            # A failed service operation restores its snapshot with new objects.
+            self._samples = [self.service.require_sample(slot) for slot in slots_before]
             self.error.emit(str(exc) or "Ungültiger Wert.")
             return False
-        self.layoutChanged.emit()
+        # Preserve source row identities; the proxy handles sorting via dataChanged.
+        self.dataChanged.emit(self.index(index.row(), 0), self.index(index.row(), 9), [])
         self.changed.emit()
         return True
 
     def refresh(self) -> None:
         self.beginResetModel()
+        self._samples = list(self.service.library.samples)
         self.endResetModel()
 
 
@@ -198,12 +209,11 @@ class SampleTableWidget(QWidget):
 
     def selected_slots(self) -> list[int]:
         rows = {index.row() for index in self.view.selectionModel().selectedRows()}
-        return sorted(
-            self.model.sample_at(
-                self.proxy.mapToSource(self.proxy.index(row, 0)).row()
-            ).metadata.slot
+        samples = [
+            self.model.sample_at(self.proxy.mapToSource(self.proxy.index(row, 0)).row())
             for row in rows
-        )
+        ]
+        return sorted(sample.metadata.slot for sample in samples if sample is not None)
 
     def current_sample(self):
         current = self.view.currentIndex()

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from e2sample_manager.domain import Sample
+from e2sample_manager.formats import FormatError
 from e2sample_manager.services import AudioService, LibraryService, ServiceError
 
 
@@ -108,7 +109,7 @@ class SliceEditorDialog(QDialog):
     def _preview(self) -> None:
         try:
             self.audio.play_region(self.sample)
-        except ServiceError as exc:
+        except (ServiceError, FormatError) as exc:
             QMessageBox.warning(self, "Wiedergabe", str(exc))
 
     def _save(self) -> None:
@@ -122,7 +123,7 @@ class SliceEditorDialog(QDialog):
             steps.append(self.table.cellWidget(row, 5).value())
         try:
             self.service.update_metadata(self.sample.metadata.slot, slices=slices, steps=steps)
-        except ServiceError as exc:
+        except (ServiceError, FormatError) as exc:
             QMessageBox.critical(self, "Slice-Daten ungültig", str(exc))
             return
         self.changed.emit()
