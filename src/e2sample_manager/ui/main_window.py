@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
@@ -32,7 +32,7 @@ from e2sample_manager.formats import FormatError
 from e2sample_manager.services import AudioService, LibraryService, ServiceError
 
 from .dialogs import HacktribeArrangeDialog, ImportOptionsDialog
-from .move_dialog import MoveRangeDialog
+from .move_dialog import MoveRangeDialog, MoveSelectionDialog
 from .pattern_editor import PatternEditor
 from .sample_table import SampleTableWidget
 from .slice_editor import SliceEditorDialog
@@ -90,6 +90,9 @@ class MainWindow(QMainWindow):
         self.table.model.error.connect(lambda message: self._show_error("Bearbeiten", message))
         self.table.audioDropped.connect(self.import_audio)
         self.table.selectionChanged.connect(self._update_actions)
+        self.table.view.moveRequested.connect(self.move_selection_dropped)
+        self.table.view.addAction(self.move_selected_action)
+        self.table.view.setContextMenuPolicy(Qt.ActionsContextMenu)
         self.pattern_editor.changed.connect(self._changed)
         self.tabs.currentChanged.connect(self._tab_changed)
         geometry = self.settings.value("window/geometry")
@@ -168,6 +171,9 @@ class MainWindow(QMainWindow):
         self.move_action = self._action(
             "Bereich verschieben …", self.move_range, "Ctrl+M", name="actionMoveRange"
         )
+        self.move_selected_action = self._action(
+            "Auswahl verschieben …", self.move_selected, "Ctrl+Shift+M", name="actionMoveSelected"
+        )
         self.mono_action = self._action("Auswahl zu Mono", self.convert_mono, name="actionMono")
         self.normalize_action = self._action(
             "Auswahl normalisieren (−1 dB)", self.normalize_selected, name="actionNormalize"
@@ -207,6 +213,7 @@ class MainWindow(QMainWindow):
         edit_menu.addActions((self.undo_action, self.redo_action))
         edit_menu.addSeparator()
         edit_menu.addActions((self.delete_action, self.duplicate_action, self.move_action))
+        edit_menu.addAction(self.move_selected_action)
         sample_menu = self.menuBar().addMenu("&Sample")
         sample_menu.addActions(
             (self.play_action, self.stop_action, self.waveform_action, self.slice_action)
@@ -234,7 +241,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
         toolbar.addActions((self.new_action, self.open_action, self.save_action))
         toolbar.addSeparator()
-        toolbar.addActions((self.import_action, self.move_action))
+        toolbar.addActions((self.import_action, self.move_selected_action))
         toolbar.addSeparator()
         toolbar.addActions((self.undo_action, self.redo_action, self.delete_action))
         toolbar.addSeparator()
@@ -358,6 +365,30 @@ class MainWindow(QMainWindow):
         slots = self.table.selected_slots()
         if slots and self._guard("Mono-Konvertierung", lambda: self.service.convert_mono(slots)):
             self._refresh()
+
+    def move_selected(self) -> None:
+        self.move_selection_dropped(self.table.selected_slots(), -1)
+
+    def move_selection_dropped(self, slots: list[int], target: int) -> None:
+        if not slots:
+            return
+        dialog = MoveSelectionDialog(
+            self.service, slots, self, target=target if target > 0 else None
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        def operation() -> None:
+            self.audio.stop()
+            mapping = self.service.move_selected(slots, dialog.target.value())
+            self._refresh()
+            self.table.select_slots(mapping.values())
+            self.statusBar().showMessage(
+                f"{len(mapping)} Samples verschoben. Geänderte Samples und Patterns speichern.",
+                7000,
+            )
+
+        self._guard("Auswahl verschieben", operation)
 
     def normalize_selected(self) -> None:
         slots = self.table.selected_slots()
@@ -729,6 +760,7 @@ class MainWindow(QMainWindow):
         self.duplicates_action.setEnabled(bool(self.service.library.samples) and samples_active)
         self.replace_action.setEnabled(has_current and samples_active)
         self.move_action.setEnabled(bool(self.service.library.samples) and samples_active)
+        self.move_selected_action.setEnabled(bool(selected) and samples_active)
         self.export_all_action.setEnabled(bool(self.service.library.samples))
 
     def _tab_changed(self, index: int) -> None:
@@ -737,6 +769,7 @@ class MainWindow(QMainWindow):
         for action in (
             self.import_action,
             self.move_action,
+            self.move_selected_action,
             self.delete_action,
             self.play_action,
             self.stop_action,

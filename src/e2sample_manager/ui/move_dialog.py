@@ -72,3 +72,54 @@ class MoveRangeDialog(QDialog):
         except ServiceError as exc:
             self.preview_text.setPlainText(str(exc))
             self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+
+
+class MoveSelectionDialog(QDialog):
+    def __init__(self, service, selected, parent=None, *, target=None):
+        super().__init__(parent)
+        self.service = service
+        self.selected = sorted(set(selected))
+        self.setWindowTitle("Ausgewählte Samples verschieben")
+        self.resize(600, 430)
+        if target is None:
+            free = service._free_slots(first=max(self.selected) + 1)
+            target = free[0] if free else (service._free_slots() or [501])[0]
+        self.target = spin(1, 999, target)
+        layout = QVBoxLayout(self)
+        intro = QLabel(
+            "Nur ausgewählte Samples werden lückenlos ab dem Ziel einsortiert, "
+            "nach aufsteigender Quell-Slotnummer. Andere Samples bleiben stehen. "
+            "Namen und Audiodaten bleiben beim jeweiligen Sample. "
+            "Geladene Sampler-Patterns werden angepasst."
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+        form = QFormLayout()
+        form.addRow("Ab Ziel-Slot", self.target)
+        layout.addLayout(form)
+        self.preview_text = QPlainTextEdit()
+        self.preview_text.setReadOnly(True)
+        layout.addWidget(self.preview_text)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText("Verschieben")
+        self.buttons.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self.target.valueChanged.connect(self.preview)
+        self.preview()
+
+    def preview(self):
+        try:
+            mapping = self.service.plan_move_selected(self.selected, self.target.value())
+            lines = [
+                f"{a:03d} → {b:03d}   {self.service.require_sample(a).metadata.name}"
+                for a, b in mapping.items()
+            ]
+            self.preview_text.setPlainText(f"{len(mapping)} Samples\n\n" + "\n".join(lines))
+            self.buttons.button(QDialogButtonBox.Ok).setEnabled(
+                any(a != b for a, b in mapping.items())
+            )
+        except ServiceError as exc:
+            self.preview_text.setPlainText(str(exc))
+            self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)

@@ -5,11 +5,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QItemSelection,
+    QItemSelectionModel,
+    QMimeData,
+    QModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
     QLineEdit,
+    QStyledItemDelegate,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -41,6 +53,7 @@ class SampleTableModel(QAbstractTableModel):
         self.service = service
         # Keep the old rows alive until Qt has been notified of a model reset.
         self._samples = list(service.library.samples)
+        self.revision = 0
 
     def rowCount(self, _parent: QModelIndex | None = None) -> int:
         return 0 if _parent is not None and _parent.isValid() else len(self._samples)
@@ -66,6 +79,8 @@ class SampleTableModel(QAbstractTableModel):
             return None
         metadata = sample.metadata
         column = index.column()
+        if role == Qt.UserRole:
+            return metadata.slot
         if role == Qt.CheckStateRole and column in (3, 4):
             value = metadata.one_shot if column == 3 else metadata.plus_12db
             return Qt.Checked if value else Qt.Unchecked
@@ -89,7 +104,9 @@ class SampleTableModel(QAbstractTableModel):
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
-        flags = super().flags(index)
+        flags = super().flags(index) | Qt.ItemIsDropEnabled
+        if index.isValid():
+            flags |= Qt.ItemIsDragEnabled
         if index.isValid() and index.column() in range(6):
             flags |= Qt.ItemIsEditable
         if index.column() in (3, 4):
@@ -132,18 +149,80 @@ class SampleTableModel(QAbstractTableModel):
     def refresh(self) -> None:
         self.beginResetModel()
         self._samples = list(self.service.library.samples)
+        self.revision += 1
         self.endResetModel()
+
+    def supportedDropActions(self):
+        return Qt.MoveAction | Qt.CopyAction
+
+
+class SampleDelegate(QStyledItemDelegate):
+    """Bind an open editor to its sample, even if proxy sorting changes its row."""
+
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if editor is not None:
+            source = index.model().mapToSource(index)
+            editor._sample = source.model().sample_at(source.row())
+        return editor
+
+    def setModelData(self, editor, model, index):
+        sample = getattr(editor, "_sample", None)
+        source = model.sourceModel()
+        row = next((i for i, item in enumerate(source._samples) if item is sample), None)
+        if row is None:
+            return  # This editor belonged to an older document/undo snapshot.
+        current = model.mapFromSource(source.index(row, index.column()))
+        if current.isValid():
+            super().setModelData(editor, model, current)
 
 
 class AudioDropTableView(QTableView):
     audioDropped = Signal(list)
+    moveRequested = Signal(list, int)
+    SAMPLE_MIME = "application/x-electribe-studio-samples"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self.setDragDropMode(QAbstractItemView.DropOnly)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDragEnabled(True)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self._drag_slots = []
+        self._drag_revision = None
+
+    def startDrag(self, supported_actions) -> None:
+        self._drag_slots = sorted(
+            {
+                self.model().data(index, Qt.UserRole)
+                for index in self.selectionModel().selectedRows()
+            }
+        )
+        if not self._drag_slots:
+            return
+        self._drag_revision = self.model().sourceModel().revision
+        mime = QMimeData()
+        mime.setData(self.SAMPLE_MIME, b"selection")
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self._drag_slots = []
+            drag.deleteLater()
+
+    def _internal_drag(self, event) -> bool:
+        return (
+            event.source() is self
+            and event.mimeData().hasFormat(self.SAMPLE_MIME)
+            and bool(self._drag_slots)
+            and self._drag_revision == self.model().sourceModel().revision
+        )
 
     def dragEnterEvent(self, event) -> None:
+        if self._internal_drag(event):
+            event.acceptProposedAction()
+            return
         paths = [Path(url.toLocalFile()) for url in event.mimeData().urls()]
         if paths and all(
             path.suffix.lower() in {".wav", ".wave", ".aif", ".aiff", ".mp3"} for path in paths
@@ -153,9 +232,20 @@ class AudioDropTableView(QTableView):
             event.ignore()
 
     def dragMoveEvent(self, event) -> None:
-        event.acceptProposedAction()
+        self.dragEnterEvent(event)
 
     def dropEvent(self, event) -> None:
+        if self._internal_drag(event):
+            index = self.indexAt(event.position().toPoint())
+            target = self.model().data(index, Qt.UserRole) if index.isValid() else -1
+            slots = list(self._drag_slots)
+            event.acceptProposedAction()
+            # Finish Qt's drag operation before opening the preview or changing rows.
+            QTimer.singleShot(0, lambda: self.moveRequested.emit(slots, target))
+            return
+        if event.mimeData().hasFormat(self.SAMPLE_MIME):
+            event.ignore()
+            return
         self.audioDropped.emit([url.toLocalFile() for url in event.mimeData().urls()])
         event.acceptProposedAction()
 
@@ -178,6 +268,13 @@ class SampleTableWidget(QWidget):
         self.proxy.setSortCaseSensitivity(Qt.CaseInsensitive)
         self.view = AudioDropTableView(self)
         self.view.setModel(self.proxy)
+        self.view.setItemDelegate(SampleDelegate(self.view))
+        self.view.setEditTriggers(
+            QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+        )
+        self.view.setToolTip(
+            "Strg/Umschalt: mehrere auswählen. Ziehen öffnet die Verschiebe-Vorschau."
+        )
         self.view.setSortingEnabled(True)
         self.view.sortByColumn(0, Qt.AscendingOrder)
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -223,3 +320,20 @@ class SampleTableWidget(QWidget):
 
     def refresh(self) -> None:
         self.model.refresh()
+
+    def select_slots(self, slots) -> None:
+        wanted = set(slots)
+        selection = QItemSelection()
+        first = None
+        for row, sample in enumerate(self.model._samples):
+            if sample.metadata.slot in wanted:
+                index = self.proxy.mapFromSource(self.model.index(row, 0))
+                if index.isValid():
+                    selection.select(
+                        index, self.proxy.index(index.row(), self.proxy.columnCount() - 1)
+                    )
+                    first = first if first is not None else index
+        self.view.selectionModel().select(selection, QItemSelectionModel.ClearAndSelect)
+        if first is not None:
+            self.view.selectionModel().setCurrentIndex(first, QItemSelectionModel.NoUpdate)
+            self.view.scrollTo(first)

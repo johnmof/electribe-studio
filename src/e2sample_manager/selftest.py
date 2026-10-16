@@ -161,8 +161,43 @@ def run_ui(bank_path: str | None = None) -> str:
                 window.service.delete([905])
                 window._refresh()
                 app.processEvents()
+            selected = sorted(s.metadata.slot for s in window.service.library.samples)[-12::3]
+            assert len(selected) == 4
+            identities = {
+                slot: (
+                    window.service.require_sample(slot).metadata.name,
+                    window.service.require_sample(slot).audio_data,
+                )
+                for slot in selected
+            }
+            window.table.view.sortByColumn(1, Qt.DescendingOrder)
+            window.table.select_slots(selected)
+            from PySide6.QtCore import QTimer
+
+            from .ui.move_dialog import MoveSelectionDialog
+
+            def confirm_selection():
+                preview = app.activeModalWidget()
+                assert isinstance(preview, MoveSelectionDialog)
+                preview.target.setValue(940)
+                preview.accept()
+
+            QTimer.singleShot(0, confirm_selection)
+            window.move_selected()
+            assert window.table.selected_slots() == [940, 941, 942, 943]
+            window.service.save_as(folder / "selection-bank.all")
+            reloaded = E2SAllFile.load(folder / "selection-bank.all")
+            for slot, target in zip(selected, range(940, 944), strict=True):
+                actual = reloaded.by_slot(target)
+                assert (actual.metadata.name, actual.audio_data) == identities[slot]
+            window.undo()
+            for slot in selected:
+                assert window.service.require_sample(slot).metadata.name == identities[slot][0]
+            window.redo()
         window.close()
         assert testers and errors  # Invalid tune was rejected without losing the editor.
     return "PASS: 36 bank changes, delegate edits, invalid values, undo/redo and waveform trim." + (
-        " Supplied bank: 3 slot-905 edit/save/reload/delete cycles passed." if bank_path else ""
+        " Supplied bank: slot-905 cycles and sparse selection with names/audio passed."
+        if bank_path
+        else ""
     )

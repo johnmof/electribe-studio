@@ -447,8 +447,35 @@ class LibraryService:
             raise ServiceError("Synth-Pattern geladen: Zuerst in das Sampler-Format konvertieren.")
         return mapping
 
+    def plan_move_selected(self, slots: Iterable[int], target: int) -> dict[int, int]:
+        selected = sorted(set(slots))
+        if not selected:
+            raise ServiceError("Zuerst Samples auswählen (Strg/Umschalt).")
+        for slot in selected:
+            self.require_sample(slot)
+        mapping = {slot: target + index for index, slot in enumerate(selected)}
+        if any(not self.profile.accepts_slot(slot) for slot in mapping.values()):
+            raise ServiceError("Die Auswahl passt nicht in die gültigen Ziel-Slots des Profils.")
+        occupied = {sample.metadata.slot for sample in self.library.samples} - set(selected)
+        conflicts = occupied.intersection(mapping.values())
+        if conflicts:
+            raise ServiceError(
+                f"Ziel bereits belegt: {sorted(conflicts)}. Nichts wird überschrieben."
+            )
+        if self.patterns and not self.patterns.sampler:
+            raise ServiceError("Die geladenen Synth-Patterns können nicht sicher angepasst werden.")
+        return mapping
+
+    def move_selected(self, slots: Iterable[int], target: int) -> dict[int, int]:
+        return self._move_mapping(self.plan_move_selected(slots, target))
+
     def move_range(self, start: int, end: int, target: int) -> dict[int, int]:
         mapping = self.plan_move(start, end, target)
+        return self._move_mapping(mapping)
+
+    def _move_mapping(self, mapping: dict[int, int]) -> dict[int, int]:
+        if all(source == target for source, target in mapping.items()):
+            return mapping
 
         def operation() -> dict[int, int]:
             for sample in self.library.samples:
