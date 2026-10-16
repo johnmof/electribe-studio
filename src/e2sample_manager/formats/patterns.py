@@ -175,6 +175,35 @@ class PatternFile:
             (int(on), gate, velocity, int(trigger), *(n + 1 for n in notes))
         )
 
+    def move_step(self, index: int, part: int, source: int, target: int) -> None:
+        """Move one active step/chord; keep motion and reserved bytes at their positions."""
+        self.step_base(index, part, source)
+        self.step_base(index, part, target)
+        if source == target:
+            return
+        playable = [
+            bar * 16 + step
+            for bar in range(self.info(index)["length"])
+            for step in range(self.part_info(index, part)["last_step"])
+        ]
+        if source not in playable or target not in playable:
+            raise ValueError("Quelle/Ziel liegen außerhalb von Pattern-Länge oder Last Step.")
+        values = self.step(index, part, source)
+        if not values["on"]:
+            raise ValueError("Der gewählte Quell-Step ist nicht aktiv.")
+        if self.step(index, part, target)["on"]:
+            raise ValueError("Der Ziel-Step ist belegt. Es wird nichts überschrieben.")
+        for step in (source, target):
+            previous = playable[(playable.index(step) - 1) % len(playable)]
+            before = self.step(index, part, previous)
+            if (before["on"] and before["gate"] == 127) or (
+                step == source and values["gate"] == 127
+            ):
+                raise ValueError("Tie-Verbindungen werden nicht einzeln verschoben.")
+        self.set_step(index, part, target, **values)
+        cleared = dict(values, on=False, trigger=False, notes=[-1] * 4)
+        self.set_step(index, part, source, **cleared)
+
     def remap(self, mapping: dict[int, int]) -> int:
         if not self.sampler:
             raise ValueError(

@@ -198,6 +198,7 @@ def run_ui(bank_path: str | None = None) -> str:
         window._refresh()
         window.tabs.setCurrentIndex(1)
         editor = window.pattern_editor
+        editor.mouse_mode.setCurrentIndex(1)
         editor.select_bar(0)
         editor.grid.setCurrentCell(0, 0)
         app.processEvents()
@@ -216,6 +217,21 @@ def run_ui(bank_path: str | None = None) -> str:
         assert window.service.patterns.step(0, 15, 49)["notes"][0] == 61
         window.undo()
         assert window.service.patterns.step(0, 15, 49)["notes"][0] == 60
+        editor.mouse_mode.setCurrentIndex(0)
+        editor.grid.setCurrentCell(15, 1)
+        app.processEvents()
+        source_cell = editor.grid.visualItemRect(editor.grid.item(15, 1)).center()
+        target_cell = editor.grid.visualItemRect(editor.grid.item(15, 2)).center()
+        QTest.mousePress(editor.grid.viewport(), Qt.LeftButton, pos=source_cell)
+        QTest.mouseMove(editor.grid.viewport(), target_cell)
+        QTest.mouseRelease(editor.grid.viewport(), Qt.LeftButton, pos=target_cell)
+        assert window.service.patterns.step(0, 15, 50)["on"]
+        QTest.keyClick(editor.grid, Qt.Key_Left, Qt.AltModifier)
+        assert window.service.patterns.step(0, 15, 49)["on"]
+        editor.target_step.setValue(64)
+        editor.move_current_step(editor.target_step.value() - 1)
+        assert window.service.patterns.step(0, 15, 63)["on"]
+        window.undo()
         window.service.save_patterns(folder / "pattern-workflow.e2spat")
         assert PatternFile.load(folder / "pattern-workflow.e2spat").step(0, 15, 49)["on"]
         window.close()

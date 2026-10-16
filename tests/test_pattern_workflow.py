@@ -76,6 +76,7 @@ def test_shift_wrap_and_transpose_boundaries_are_safe(qtbot, monkeypatch):
 
 def test_grid_mouse_keyboard_sample_names_and_last_bar(qtbot):
     service, editor = make_editor(qtbot)
+    editor.mouse_mode.setCurrentIndex(1)
     assert "Deep Kick" in editor.grid.verticalHeaderItem(0).text()
     cell = editor.grid.visualItemRect(editor.grid.item(0, 0)).center()
     qtbot.mouseClick(editor.grid.viewport(), Qt.LeftButton, pos=cell)

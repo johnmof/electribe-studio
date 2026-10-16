@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -53,6 +54,10 @@ class StepDelegate(QStyledItemDelegate):
             painter.setBrush(Qt.NoBrush)
             painter.setPen(QPen(QColor("#f3c77e"), 2))
             painter.drawRoundedRect(rect, 4, 4)
+        if getattr(self.parent(), "_drop_cell", None) == (index.row(), index.column()):
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor("#f3c77e"), 2))
+            painter.drawRoundedRect(rect, 4, 4)
         if index.column() % 4 == 0:
             painter.setPen(QColor("#54647b"))
             painter.drawLine(option.rect.topLeft(), option.rect.bottomLeft())
@@ -70,9 +75,69 @@ class StepDelegate(QStyledItemDelegate):
 
 class StepGrid(QTableWidget):
     toggleRequested = Signal()
+    nudgeRequested = Signal(int)
+    stepMoved = Signal(int, int, int, int)
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._press_cell = self._drop_cell = None
+        self._moving = self._suppress_click = False
+        self.document_token = None
+
+    def mousePressEvent(self, event):
+        index = self.indexAt(event.position().toPoint())
+        item = self.item(index.row(), index.column()) if index.isValid() else None
+        self._press_cell = (
+            (index.row(), index.column())
+            if item is not None
+            and item.checkState() == Qt.Checked
+            and event.button() == Qt.LeftButton
+            else None
+        )
+        self._press_position = event.position().toPoint()
+        self._press_token = self.document_token
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_cell is not None:
+            if (
+                event.position().toPoint() - self._press_position
+            ).manhattanLength() >= QApplication.startDragDistance():
+                self._moving = True
+            if self._moving:
+                index = self.indexAt(event.position().toPoint())
+                self._drop_cell = (index.row(), index.column()) if index.isValid() else None
+                self.viewport().setCursor(Qt.ClosedHandCursor)
+                self.viewport().update()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        source = self._press_cell
+        moving = self._moving
+        index = self.indexAt(event.position().toPoint())
+        self._suppress_click = moving
+        try:
+            super().mouseReleaseEvent(event)
+        finally:
+            self._suppress_click = self._moving = False
+            self._press_cell = self._drop_cell = None
+            self.viewport().unsetCursor()
+            self.viewport().update()
+        if (
+            moving
+            and source is not None
+            and index.isValid()
+            and self._press_token == self.document_token
+        ):
+            self.stepMoved.emit(source[0], source[1], index.row(), index.column())
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space and event.modifiers() == Qt.NoModifier:
+        if event.modifiers() == Qt.AltModifier and event.key() in (Qt.Key_Left, Qt.Key_Right):
+            self.nudgeRequested.emit(-1 if event.key() == Qt.Key_Left else 1)
+            event.accept()
+        elif event.key() == Qt.Key_Space and event.modifiers() == Qt.NoModifier:
             self.toggleRequested.emit()
             event.accept()
         else:
@@ -164,7 +229,10 @@ class PatternEditor(QWidget):
             button.clicked.connect(lambda checked=False, n=number: self.select_bar(n))
             bar_row.addWidget(button)
             self.bar_buttons.append(button)
-        hint = QLabel("Klick: Step an/aus · Pfeiltasten: auswählen · Leertaste: umschalten")
+        self.mouse_mode = QComboBox()
+        self.mouse_mode.addItems(["Auswählen / Verschieben", "Steps schalten"])
+        bar_row.addWidget(self.mouse_mode)
+        hint = QLabel("Ziehen · Alt+←/→: 1 Step")
         hint.setObjectName("subtitle")
         bar_row.addWidget(hint)
         bar_row.addStretch()
@@ -269,6 +337,30 @@ class PatternEditor(QWidget):
         self.velocity = spin(0, 127, 100)
         self.gate = spin(0, 127, 72)
         step_form.addRow(self.on, self.trigger)
+        position_row = QWidget()
+        position_layout = QHBoxLayout(position_row)
+        position_layout.setContentsMargins(0, 0, 0, 0)
+        position_layout.setSpacing(3)
+        self.target_step = spin(1, 64, 1)
+        self.target_step.setMinimumWidth(48)
+        self.target_step.setToolTip("Ziel-Step im ganzen Pattern: 1–64. Takt 2 beginnt bei 17.")
+        for title, handler in (("←", lambda: self.nudge_step(-1)),):
+            button = QPushButton(title)
+            button.setFixedWidth(28)
+            button.setStyleSheet("padding: 2px;")
+            button.clicked.connect(handler)
+            position_layout.addWidget(button)
+        position_layout.addWidget(self.target_step)
+        for title, handler in (
+            ("→", lambda: self.nudge_step(1)),
+            ("↵", lambda: self.move_current_step(self.target_step.value() - 1)),
+        ):
+            button = QPushButton(title)
+            button.setFixedWidth(28)
+            button.setStyleSheet("padding: 2px;")
+            button.clicked.connect(handler)
+            position_layout.addWidget(button)
+        step_form.addRow("Position", position_row)
         step_form.addRow("Velocity", self.velocity)
         step_form.addRow("Gate · 127 = Tie", self.gate)
         self.notes_caption = QLabel()
@@ -309,19 +401,24 @@ class PatternEditor(QWidget):
         self.grid.itemChanged.connect(self.toggle_step)
         self.grid.cellClicked.connect(self.click_step)
         self.grid.toggleRequested.connect(
-            lambda: self.click_step(self.grid.currentRow(), self.grid.currentColumn())
+            lambda: self.click_step(self.grid.currentRow(), self.grid.currentColumn(), force=True)
         )
+        self.grid.nudgeRequested.connect(self.nudge_step)
+        self.grid.stepMoved.connect(self.drag_step)
         self.refresh()
 
-    def run_edit(self, operation) -> None:
+    def run_edit(self, operation) -> bool:
         if self._loading:
-            return
+            return False
+        success = True
         try:
             self.service.edit_pattern(operation)
         except (ValueError, OSError, ServiceError) as exc:
+            success = False
             QMessageBox.warning(self, "Pattern bearbeiten", str(exc))
         self.refresh()
         self.changed.emit()
+        return success
 
     def confirm_replace(self) -> bool:
         if not self.service.pattern_dirty:
@@ -412,12 +509,38 @@ class PatternEditor(QWidget):
         self._loading = False
         self.grid.viewport().update()
 
-    def click_step(self, row: int, column: int) -> None:
+    def click_step(self, row: int, column: int, *, force=False) -> None:
         if self._loading or row < 0 or column < 0:
+            return
+        if self.grid._suppress_click or (self.mouse_mode.currentIndex() == 0 and not force):
             return
         item = self.grid.item(row, column)
         if item is not None:
             item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
+
+    def nudge_step(self, direction: int) -> None:
+        self.move_current_step(self.step_index + direction)
+
+    def move_current_step(self, target: int) -> None:
+        source, part = self.step_index, self.part
+        if target == source or self.service.patterns is None:
+            return
+        if self.run_edit(lambda patterns: patterns.move_step(self.index, part, source, target)):
+            self.step_index = target
+            old = self.bar.blockSignals(True)
+            self.bar.setCurrentIndex(target // 16)
+            self.bar.blockSignals(old)
+            self.refresh()
+
+    def drag_step(self, source_part: int, source_col: int, target_part: int, target_col: int):
+        if source_part != target_part:
+            QMessageBox.warning(
+                self, "Step verschieben", "Bitte innerhalb desselben Parts verschieben."
+            )
+            return
+        self.part = source_part
+        self.step_index = self.bar.currentIndex() * 16 + source_col
+        self.move_current_step(self.bar.currentIndex() * 16 + target_col)
 
     def select_bar(self, number: int) -> None:
         self.bar.setCurrentIndex(number)
@@ -550,6 +673,8 @@ class PatternEditor(QWidget):
         if patterns is None:
             return
         self.selection_label.setText(f"PART {self.part + 1:02d}  /  STEP {self.step_index + 1:02d}")
+        self.target_step.setRange(1, min(64, patterns.info(self.index)["length"] * 16))
+        self.target_step.setValue(self.step_index + 1)
         self.bar_tools_label.setText(
             f"PART {self.part + 1:02d} · TAKT {self.bar.currentIndex() + 1} BEARBEITEN"
         )
@@ -595,6 +720,7 @@ class PatternEditor(QWidget):
     def refresh(self) -> None:
         self._loading = True
         patterns = self.service.patterns
+        self.grid.document_token = (id(patterns), self.index, self.bar.currentIndex())
         self.editor.setEnabled(patterns is not None)
         self.paste_button.setEnabled(patterns is not None and self._bar_clipboard is not None)
         if patterns is None:
