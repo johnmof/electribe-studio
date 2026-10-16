@@ -234,10 +234,33 @@ def run_ui(bank_path: str | None = None) -> str:
         window.undo()
         window.service.save_patterns(folder / "pattern-workflow.e2spat")
         assert PatternFile.load(folder / "pattern-workflow.e2spat").step(0, 15, 49)["on"]
+        editor.views.setCurrentIndex(1)
+        editor.piano.part.setCurrentIndex(4)
+        editor.piano.raster.setCurrentIndex(2)
+        app.processEvents()
+        piano = editor.piano.grid
+        item = piano.item(piano.low + piano.rowCount() - 1 - 60, 3)
+        piano.scrollToItem(item)
+        point = piano.visualItemRect(item).center()
+        QTest.mouseClick(piano.viewport(), Qt.LeftButton, pos=point)
+        assert window.service.patterns.step(0, 4, 52)["notes"][0] == 60
+        QTest.keyClick(piano, Qt.Key_Up)
+        assert window.service.patterns.step(0, 4, 52)["notes"][0] == 61
+        QTest.keyClick(piano, Qt.Key_Right)
+        assert window.service.patterns.step(0, 4, 56)["notes"][0] == 61
+        window.undo()
+        editor.draw_melody_note(55, 67)
+        window.service.edit_pattern(lambda doc: doc.quantize_bar(0, 4, 3, 4))
+        window._refresh()
+        window.service.save_patterns(folder / "melody-workflow.e2spat")
+        loaded = PatternFile.load(folder / "melody-workflow.e2spat")
+        assert loaded.step(0, 4, 52)["notes"][0] == 61
+        assert loaded.step(0, 4, 56)["notes"][0] == 67
         window.close()
         assert testers and errors  # Invalid tune was rejected without losing the editor.
     return (
-        "PASS: 36 bank changes, delegate edits, undo/redo, waveform trim and pattern workflow."
+        "PASS: 36 bank changes, delegate edits, undo/redo, waveform trim, "
+        "pattern and piano workflow."
         + (
             " Supplied bank: slot-905 cycles and sparse selection with names/audio passed."
             if bank_path

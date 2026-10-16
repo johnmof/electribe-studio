@@ -66,6 +66,16 @@ window.resize(1250, 850)
 window.tabs.setCurrentIndex(1)
 app.processEvents()
 window.grab().save(str(output / "patterns.png"))
+for s, pitch in ((0, 60), (2, 64), (4, 67), (6, 64), (8, 69), (10, 67), (12, 64), (14, 62)):
+    service.patterns.set_step(
+        0, 4, s, on=True, gate=72, velocity=100, trigger=True, notes=[pitch, -1, -1, -1]
+    )
+window.pattern_editor.part = 4
+window.pattern_editor.refresh()
+window.pattern_editor.views.setCurrentIndex(1)
+window.pattern_editor.piano.raster.setCurrentIndex(1)
+app.processEvents()
+window.grab().save(str(output / "melody.png"))
 dialog = WaveformEditorDialog(service, window.audio, service.require_sample(501), window)
 dialog.show()
 app.processEvents()

@@ -28,11 +28,13 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from e2sample_manager.services import LibraryService, ServiceError
+from e2sample_manager.ui.piano_roll import PianoRoll
 
 PATTERN_FILTER = "Electribe Patterns (*.e2spat *.e2sallpat *.e2pat *.e2allpat)"
 
@@ -260,7 +262,14 @@ class PatternEditor(QWidget):
         self.grid.setShowGrid(False)
         self.grid.setFocusPolicy(Qt.StrongFocus)
         self.grid.setVerticalHeaderLabels([f"Part {n + 1:02d}" for n in range(16)])
-        sequence_layout.addWidget(self.grid, 1)
+        self.views = QTabWidget()
+        self.views.addTab(self.grid, "Alle Parts")
+        self.piano = PianoRoll()
+        self.views.addTab(self.piano, "Melodie / Piano-Roll")
+        self.views.currentChanged.connect(
+            lambda index: (self.mouse_mode.setVisible(index == 0), hint.setVisible(index == 0))
+        )
+        sequence_layout.addWidget(self.views, 1)
         self.bar_tools_label = QLabel()
         self.bar_tools_label.setObjectName("sectionTitle")
         sequence_layout.addWidget(self.bar_tools_label)
@@ -353,7 +362,7 @@ class PatternEditor(QWidget):
         position_layout.addWidget(self.target_step)
         for title, handler in (
             ("→", lambda: self.nudge_step(1)),
-            ("↵", lambda: self.move_current_step(self.target_step.value() - 1)),
+            ("OK", lambda: self.move_current_step(self.target_step.value() - 1)),
         ):
             button = QPushButton(title)
             button.setFixedWidth(28)
@@ -405,6 +414,16 @@ class PatternEditor(QWidget):
         )
         self.grid.nudgeRequested.connect(self.nudge_step)
         self.grid.stepMoved.connect(self.drag_step)
+        self.piano.partSelected.connect(self.select_melody_part)
+        self.piano.octave.currentIndexChanged.connect(lambda _: self.refresh())
+        self.piano.raster.currentIndexChanged.connect(lambda _: self.refresh())
+        self.piano.grid.noteSelected.connect(self.select_melody_note)
+        self.piano.grid.noteDrawn.connect(self.draw_melody_note)
+        self.piano.grid.noteRemoved.connect(
+            lambda step, pitch: self.draw_melody_note(step, pitch, remove=True)
+        )
+        self.piano.grid.noteMoved.connect(self.move_melody_note)
+        self.piano.quantizeRequested.connect(self.quantize_melody)
         self.refresh()
 
     def run_edit(self, operation) -> bool:
@@ -506,8 +525,78 @@ class PatternEditor(QWidget):
         self.part, self.step_index = row, self.bar.currentIndex() * 16 + column
         self._loading = True
         self.load_details()
+        self.refresh_piano()
         self._loading = False
         self.grid.viewport().update()
+
+    def refresh_piano(self):
+        if self.service.patterns is not None:
+            labels = [self.grid.verticalHeaderItem(i).text() for i in range(16)]
+            self.piano.load(
+                self.service.patterns,
+                self.index,
+                self.part,
+                self.bar.currentIndex(),
+                self.step_index,
+                labels,
+            )
+
+    def select_melody_part(self, part):
+        if not self._loading and part >= 0:
+            self.part = part
+            self.refresh()
+
+    def select_melody_note(self, step, pitch):
+        self.piano.selected_pitch = pitch
+        self.select_step(self.part, step % 16)
+
+    def draw_melody_note(self, step, pitch, *, remove=False):
+        self.step_index = step
+        self.piano.selected_pitch = pitch
+        self.run_edit(
+            lambda patterns: patterns.draw_note(self.index, self.part, step, pitch, remove=remove)
+        )
+
+    def move_melody_note(self, source, note, target, pitch):
+        if source == target and note == pitch:
+            return
+        if self.run_edit(
+            lambda patterns: patterns.move_note(self.index, self.part, source, note, target, pitch)
+        ):
+            self.step_index = target
+            self.piano.selected_pitch = pitch
+            old = self.bar.blockSignals(True)
+            self.bar.setCurrentIndex(target // 16)
+            self.bar.blockSignals(old)
+            self.refresh()
+
+    def quantize_melody(self):
+        patterns = self.service.patterns
+        if patterns is None:
+            return
+        bar, spacing = self.bar.currentIndex(), self.piano.raster.currentData()
+        try:
+            mapping = patterns.quantize_plan(self.index, self.part, bar, spacing)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Am Raster ausrichten", str(exc))
+            return
+        if not mapping:
+            QMessageBox.information(
+                self, "Am Raster ausrichten", "Alle aktiven Steps liegen bereits auf diesem Raster."
+            )
+            return
+        preview = " · ".join(f"{source + 1} → {target + 1}" for source, target in mapping.items())
+        answer = QMessageBox.question(
+            self,
+            "Am Raster ausrichten",
+            f"Part {self.part + 1:02d}, Takt {bar + 1}: auf {spacing}-Step-Raster setzen?\n\n"
+            f"{preview}\n\nNächstes Rasterfeld; bei Gleichstand das frühere. "
+            "Akkorde bleiben zusammen. Motion, Swing und Groove bleiben unverändert.",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Ok,
+        )
+        if answer == QMessageBox.Ok:
+            self.run_edit(lambda doc: doc.quantize_bar(self.index, self.part, bar, spacing))
 
     def click_step(self, row: int, column: int, *, force=False) -> None:
         if self._loading or row < 0 or column < 0:
@@ -793,4 +882,5 @@ class PatternEditor(QWidget):
                 self.grid.setItem(part, col, item)
         self.grid.setCurrentCell(self.part, self.step_index % 16)
         self.load_details()
+        self.refresh_piano()
         self._loading = False

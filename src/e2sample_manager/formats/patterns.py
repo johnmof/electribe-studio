@@ -181,11 +181,7 @@ class PatternFile:
         self.step_base(index, part, target)
         if source == target:
             return
-        playable = [
-            bar * 16 + step
-            for bar in range(self.info(index)["length"])
-            for step in range(self.part_info(index, part)["last_step"])
-        ]
+        playable = self.playable_steps(index, part)
         if source not in playable or target not in playable:
             raise ValueError("Quelle/Ziel liegen außerhalb von Pattern-Länge oder Last Step.")
         values = self.step(index, part, source)
@@ -203,6 +199,105 @@ class PatternFile:
         self.set_step(index, part, target, **values)
         cleared = dict(values, on=False, trigger=False, notes=[-1] * 4)
         self.set_step(index, part, source, **cleared)
+
+    def playable_steps(self, index: int, part: int) -> list[int]:
+        """Stored positions which can play, without changing hidden sequence data."""
+        last = self.part_info(index, part)["last_step"]
+        # KORG MIDI Implementation, pattern byte 38: 0=16, 1=32, 2=8Tri, 3=16Tri.
+        beat = self.data[self.base(index) + 38]
+        last = min(last, 12 if beat in (2, 3) else 16)
+        return [
+            bar * 16 + step for bar in range(self.info(index)["length"]) for step in range(last)
+        ]
+
+    def _check_note_position(self, index: int, part: int, step: int) -> None:
+        playable = self.playable_steps(index, part)
+        if step not in playable:
+            raise ValueError("Der Step liegt außerhalb von Pattern-Länge oder Last Step.")
+        previous = playable[(playable.index(step) - 1) % len(playable)]
+        values, before = self.step(index, part, step), self.step(index, part, previous)
+        if (values["on"] and values["gate"] == 127) or (before["on"] and before["gate"] == 127):
+            raise ValueError("Tie-Verbindungen bitte im Step-Editor bearbeiten.")
+
+    def draw_note(self, index: int, part: int, step: int, note: int, *, remove=False) -> None:
+        self._check_note_position(index, part, step)
+        if not 0 <= note <= 127:
+            raise ValueError("Noten müssen zwischen MIDI 0 und 127 liegen.")
+        values = self.step(index, part, step)
+        notes = list(values["notes"]) if values["on"] else [-1] * 4
+        if remove:
+            if note not in notes:
+                return
+            notes[notes.index(note)] = -1
+            values["on"] = any(n >= 0 for n in notes)
+            if not values["on"]:
+                values["trigger"] = False
+        else:
+            if note in notes:
+                return
+            if -1 not in notes:
+                raise ValueError("Die KORG speichert höchstens vier Noten pro Step.")
+            notes[notes.index(-1)] = note
+            if not values["on"]:
+                values.update(on=True, trigger=True, gate=72, velocity=100)
+        self.set_step(index, part, step, **dict(values, notes=notes))
+
+    def move_note(
+        self, index: int, part: int, source: int, note: int, target: int, pitch: int
+    ) -> None:
+        if not 0 <= pitch <= 127:
+            raise ValueError("Die Tonhöhe würde MIDI 0–127 überschreiten.")
+        self._check_note_position(index, part, source)
+        self._check_note_position(index, part, target)
+        values = self.step(index, part, source)
+        if not values["on"] or note not in values["notes"]:
+            raise ValueError("Die Quellnote ist nicht mehr vorhanden.")
+        voice = values["notes"].index(note)
+        if source == target:
+            if note != pitch and pitch in values["notes"]:
+                raise ValueError("Diese Tonhöhe ist im Step bereits vorhanden.")
+            values["notes"][voice] = pitch
+            self.set_step(index, part, source, **values)
+            return
+        if self.step(index, part, target)["on"]:
+            raise ValueError("Der Ziel-Step ist belegt. Es wird nichts überschrieben.")
+        destination = dict(values, notes=[pitch, -1, -1, -1])
+        values["notes"][voice] = -1
+        if all(n < 0 for n in values["notes"]):
+            values.update(on=False, trigger=False)
+        self.set_step(index, part, target, **destination)
+        self.set_step(index, part, source, **values)
+
+    def quantize_plan(self, index: int, part: int, bar: int, spacing: int) -> dict[int, int]:
+        if spacing not in (1, 2, 4, 8) or not 0 <= bar < self.info(index)["length"]:
+            raise ValueError("Ungültiges Raster oder ungültiger Takt.")
+        playable = [step for step in self.playable_steps(index, part) if step // 16 == bar]
+        targets = [step for step in playable if step % 16 % spacing == 0]
+        mapping = {
+            source: min(targets, key=lambda t: (abs(t - source), t))
+            for source in playable
+            if self.step(index, part, source)["on"]
+        }
+        if len(set(mapping.values())) != len(mapping):
+            raise ValueError(
+                "Mehrere aktive Steps würden auf dasselbe Rasterfeld fallen. "
+                "Bitte ein feineres Raster wählen oder einzelne Noten zuerst verschieben."
+            )
+        for source, target in mapping.items():
+            if source != target:
+                self._check_note_position(index, part, source)
+                self._check_note_position(index, part, target)
+        return {source: target for source, target in mapping.items() if source != target}
+
+    def quantize_bar(self, index: int, part: int, bar: int, spacing: int) -> None:
+        mapping = self.quantize_plan(index, part, bar, spacing)
+        original = {source: self.step(index, part, source) for source in mapping}
+        for source, values in original.items():
+            self.set_step(
+                index, part, source, **dict(values, on=False, trigger=False, notes=[-1] * 4)
+            )
+        for source, target in mapping.items():
+            self.set_step(index, part, target, **original[source])
 
     def remap(self, mapping: dict[int, int]) -> int:
         if not self.sampler:
