@@ -9,7 +9,10 @@ from PySide6.QtCore import QSettings
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -171,6 +174,10 @@ class MainWindow(QMainWindow):
         self.duplicates_action = self._action(
             "Identische Audiodaten finden …", self.find_duplicates, name="actionDuplicates"
         )
+        self.fade_action = self._action("Ein-/Ausblenden …", self.fade_selected, name="actionFade")
+        self.usage_action = self._action(
+            "Sample-Verwendung anzeigen …", self.show_sample_usage, name="actionUsage"
+        )
         self.replace_action = self._action(
             "Sample ersetzen …", self.replace_sample, name="actionReplace"
         )
@@ -206,6 +213,7 @@ class MainWindow(QMainWindow):
         sample_menu.addActions((self.mono_action, self.replace_action))
         sample_menu.addSeparator()
         sample_menu.addActions((self.normalize_action, self.duplicates_action))
+        sample_menu.addActions((self.fade_action, self.usage_action))
         profile_menu = self.menuBar().addMenu("&Profil")
         profile_menu.addActions((self.korg_profile_action, self.hack_profile_action))
         profile_menu.addSeparator()
@@ -393,9 +401,116 @@ class MainWindow(QMainWindow):
         layout.addWidget(close)
         dialog.exec()
 
+    def fade_selected(self) -> None:
+        slots = self.table.selected_slots()
+        if not slots:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Kurze Ein-/Ausblendungen")
+        layout = QVBoxLayout(dialog)
+        hint = QLabel(
+            f"{len(slots)} Samples · linear am eingestellten Wiedergabestart und -ende.\n"
+            "0 ms deaktiviert die jeweilige Seite. Kurze Bereiche begrenzen die Dauer;\n"
+            "überlappende Fades werden multipliziert. Marker bleiben erhalten.\n"
+            "Loop-Übergänge und einzelne Slice-Grenzen werden nicht geglättet.\n"
+            "Die Audiodaten werden geändert. Rückgängig mit Strg+Z."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        form = QFormLayout()
+        incoming, outgoing = QDoubleSpinBox(), QDoubleSpinBox()
+        for field in (incoming, outgoing):
+            field.setRange(0, 100)
+            field.setDecimals(1)
+            field.setSuffix(" ms")
+            field.setValue(5)
+        form.addRow("Einblenden", incoming)
+        form.addRow("Ausblenden", outgoing)
+        layout.addLayout(form)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Anwenden")
+        buttons.button(QDialogButtonBox.Cancel).setText("Abbrechen")
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        def operation() -> None:
+            count = self.service.fade_samples(
+                slots, fade_in_ms=incoming.value(), fade_out_ms=outgoing.value()
+            )
+            self._refresh()
+            self.statusBar().showMessage(
+                f"{count} Samples ein-/ausgeblendet. Strg+Z: Rückgängig.", 7000
+            )
+
+        self._guard("Ein-/Ausblenden", operation)
+
+    def show_sample_usage(self) -> None:
+        slots = self.table.selected_slots()
+        if not slots:
+            return
+
+        def operation() -> None:
+            usage = self.service.sample_usage(slots)
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Sample-Verwendung")
+            dialog.resize(680, 450)
+            layout = QVBoxLayout(dialog)
+            hint = QLabel(
+                "Nur die geladene Pattern-Datei wird geprüft, auch stumme/leere Parts.\n"
+                "Eine Zuordnung muss nicht hörbar sein. Andere Dateien sind unbekannt."
+            )
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+            report = QPlainTextEdit()
+            report.setReadOnly(True)
+            sections = []
+            for slot, references in usage.items():
+                title = f"Slot {slot:03d} · {self.service.require_sample(slot).metadata.name}"
+                lines = [
+                    f"Pattern {ref['pattern']:03d} · {ref['name']} · Part {ref['part']:02d}"
+                    + (" · stumm" if ref["mute"] else "")
+                    for ref in references
+                ]
+                sections.append(
+                    title + "\n" + "\n".join(lines or ["Keine Zuordnung in der geladenen Datei."])
+                )
+            report.setPlainText("\n\n".join(sections))
+            layout.addWidget(report)
+            close = QPushButton("Schließen")
+            close.clicked.connect(dialog.accept)
+            layout.addWidget(close)
+            dialog.exec()
+
+        self._guard("Sample-Verwendung", operation)
+
+    def _usage_warning(self, slots: list[int]) -> str:
+        if self.service.patterns is None or not self.service.patterns.sampler:
+            return ""
+        count = sum(len(refs) for refs in self.service.sample_usage(slots).values())
+        return (
+            (
+                f"\n\n{count} Part-Zuordnungen in der geladenen Pattern-Datei verweisen darauf. "
+                "Die Zuordnungen bleiben bestehen; ihr Klang kann sich ändern."
+            )
+            if count
+            else ""
+        )
+
     def replace_sample(self) -> None:
         sample = self.table.current_sample()
         if sample is None:
+            return
+        warning = self._usage_warning([sample.metadata.slot])
+        if (
+            warning
+            and QMessageBox.question(
+                self, "Verwendetes Sample ersetzen", "Sample wirklich ersetzen?" + warning
+            )
+            != QMessageBox.Yes
+        ):
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Sample ersetzen", self._last_dir("audio"), AUDIO_FILTER
@@ -505,7 +620,9 @@ class MainWindow(QMainWindow):
         if not slots:
             return
         if QMessageBox.question(
-            self, "Samples löschen", f"{len(slots)} ausgewählte Sample(s) endgültig löschen?"
+            self,
+            "Samples löschen",
+            f"{len(slots)} ausgewählte Sample(s) löschen?" + self._usage_warning(slots),
         ) == QMessageBox.Yes and self._guard(
             "Löschen fehlgeschlagen", lambda: self.service.delete(slots)
         ):
@@ -604,6 +721,8 @@ class MainWindow(QMainWindow):
         self.delete_action.setEnabled(bool(selected) and samples_active)
         self.mono_action.setEnabled(bool(selected) and samples_active)
         self.normalize_action.setEnabled(bool(selected) and samples_active)
+        self.fade_action.setEnabled(bool(selected) and samples_active)
+        self.usage_action.setEnabled(bool(selected) and samples_active)
         self.duplicates_action.setEnabled(bool(self.service.library.samples) and samples_active)
         self.replace_action.setEnabled(has_current and samples_active)
         self.move_action.setEnabled(bool(self.service.library.samples) and samples_active)

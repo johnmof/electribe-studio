@@ -523,6 +523,66 @@ class LibraryService:
             groups.setdefault(key, []).append(sample.metadata.slot)
         return [slots for slots in groups.values() if len(slots) > 1]
 
+    def fade_samples(self, slots: Iterable[int], *, fade_in_ms: float, fade_out_ms: float) -> int:
+        """Apply linked linear fades within the playback region, preserving all markers."""
+        import numpy as np
+
+        if any(not math.isfinite(ms) or not 0 <= ms <= 100 for ms in (fade_in_ms, fade_out_ms)):
+            raise ServiceError("Ein-/Ausblendung muss zwischen 0 und 100 ms liegen.")
+        updates = {}
+        for slot in dict.fromkeys(slots):
+            sample = self.require_sample(slot)
+            channels, rate, align = sample.wave.pcm_format
+            pcm = np.frombuffer(sample.audio_data, dtype="<i2").reshape(-1, channels)
+            start = sample.metadata.start // align
+            end = (sample.metadata.start + sample.metadata.end) // align + 1
+            if not 0 <= start < end <= len(pcm):
+                raise ServiceError(f"Slot {slot}: ungültiger Wiedergabebereich.")
+            gain = np.ones(end - start)
+            for ms, incoming in ((fade_in_ms, True), (fade_out_ms, False)):
+                if ms == 0:
+                    continue
+                count = min(len(gain), max(2, round(rate * ms / 1000)))
+                ramp = np.linspace(0, 1, count) if count > 1 else np.zeros(1)
+                if incoming:
+                    gain[:count] *= ramp
+                else:
+                    gain[-count:] *= ramp[::-1]
+            result = pcm.copy()
+            result[start:end] = np.rint(pcm[start:end].astype(float) * gain[:, None]).astype("<i2")
+            data = result.astype("<i2").tobytes()
+            if data != sample.audio_data:
+                updates[slot] = data
+        if updates:
+
+            def operation() -> None:
+                for slot, data in updates.items():
+                    self.require_sample(slot).audio_data = data
+
+            self._change(operation)
+        return len(updates)
+
+    def sample_usage(self, slots: Iterable[int]) -> dict[int, list[dict]]:
+        """Report assignments, including muted/empty parts, in the loaded sampler file."""
+        if self.patterns is None:
+            raise ServiceError("Zuerst die passende Sampler-Pattern-Datei unter Patterns öffnen.")
+        if not self.patterns.sampler:
+            raise ServiceError("Synth-Patterns enthalten keine auswertbaren Sampler-Zuordnungen.")
+        usage: dict[int, list[dict]] = {slot: [] for slot in slots}
+        for index in range(self.patterns.count):
+            for part in range(16):
+                slot = self.patterns.oscillator(index, part)
+                if slot in usage:
+                    usage[slot].append(
+                        {
+                            "pattern": index + 1,
+                            "name": self.patterns.info(index)["name"],
+                            "part": part + 1,
+                            "mute": self.patterns.part_info(index, part)["mute"],
+                        }
+                    )
+        return usage
+
     def load_patterns(self, path: str | Path) -> None:
         patterns = PatternFile.load(path)
         self.patterns = patterns
@@ -596,4 +656,3 @@ class LibraryService:
             directory,
             include_markers=include_markers,
         )
-

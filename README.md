@@ -12,6 +12,8 @@ ZIP vollständig entpacken und `ElectribeStudio/ElectribeStudio.exe` starten. De
 
 ## Funktionen
 
+- Neu in 0.4.0: **Sample → Ein-/Ausblenden** bearbeitet die Auswahl mit linearen Fades von 0–100 ms (Vorgabe: je 5 ms). 0 deaktiviert eine Seite. Fades liegen am eingestellten Wiedergabestart/-ende, behalten Stereo-Verhältnis und Marker und lassen sich gemeinsam rückgängig machen. Bei kurzen Samples wird die Dauer begrenzt; Überlappungen werden multipliziert. Loop-Übergänge und einzelne Slice-Grenzen werden nicht automatisch geglättet.
+- Neu in 0.4.0: **Sample → Sample-Verwendung anzeigen** listet für die Auswahl Pattern-Nummer, Name, Part und Mute-Status. Zuerst die passende Sampler-Pattern-Datei laden. Auch leere/stumme Parts zählen als Zuordnung. Andere Dateien bleiben unbekannt; Synth-Patterns werden nicht als Sample-Verwendung ausgewertet. Vor Löschen/Ersetzen erscheint bei gefundenen Zuordnungen eine Warnung.
 - Neu in 0.3.0: Auswahl auf −1 dBFS normalisieren (Menü **Sample**), gemeinsam pro Stereo-Paar und mit Undo. Stille bleibt unverändert; +12-dB-Geräteeinstellung bleibt separat aktiv. Dies gleicht Spitzenpegel an, nicht die wahrgenommene Lautheit.
 - Neu in 0.3.0: **Sample → Identische Audiodaten finden** zeigt doppelte PCM-Daten bei gleicher Kanalzahl und Samplerate. Namen und Wiedergabemarker können abweichen; es wird nichts automatisch gelöscht.
 - Sample-Banken `.all` öffnen, erstellen, zusammenführen und speichern.
@@ -66,7 +68,7 @@ Sample-Pfade: `KORG/electribe sampler/Sample/e2sSample.all` beziehungsweise `KOR
 
 52 automatisierte Tests wurden unter Windows erfolgreich ausgeführt, einschließlich Datei-Roundtrips, Backups, Mono-Konvertierung, Bereichskollisionen, überlappenden Verschiebungen, Undo/Redo und Pattern-Bearbeitung. Eine öffentliche Hacktribe-Initialbank wurde zusätzlich bytegenau eingelesen und geschrieben. Ein eigener Selbsttest prüft den gebauten Windows-Programmordner.
 
-Version 0.2.0 wurde vom Anwender an seiner KORG getestet und als funktionierend gemeldet. Die Ergänzungen in 0.3.0 wurden automatisiert geprüft; ein eigener Hardwaretest dieser Ergänzungen und ein bestätigter Hacktribe-Hardwaretest stehen noch aus.
+Version 0.2.0 wurde vom Anwender an seiner KORG getestet und als funktionierend gemeldet. Die Ergänzungen in 0.3.0 und 0.4.0 wurden gezielt automatisiert geprüft; ein eigener Hardwaretest dieser Ergänzungen und ein bestätigter Hacktribe-Hardwaretest stehen noch aus.
 
 Keine direkte USB/MIDI-Verbindung, Pattern-Audiovorschau oder Synthesizer-Emulation. Motion- und Effektparameter bleiben erhalten, haben aber keine eigenen Editoren. Audioimport erzeugt PCM16 mono/stereo; die Samplerate bleibt erhalten. Mehrkanaldateien werden zu Stereo gemischt. KORG-Slice-Metadaten bleiben innerhalb geöffneter `.all`-Banken erhalten; Standard-Audioimport übernimmt nur die unterstützten Cue-/Loop-Marker. Keine Werkssamples oder Firmware enthalten. Warnung ab 24 MiB, Dateiprüfung mit 26.214.396 Bytes Limit. Windows-Paket ohne Codesignatur und ohne Updater.
 
@@ -90,3 +92,4 @@ Alternativ `tools/build-windows.ps1`. Ergebnis: `dist/ElectribeStudio/ElectribeS
 Weiterentwicklung von [Only2000000iqiscool/e2sample-manager](https://github.com/Only2000000iqiscool/e2sample-manager), Ausgangscommit `f8d10508827174530abf6ba3e74488d37b3abb3e`. **GPL-3.0-or-later**, siehe [LICENSE](LICENSE) und [ATTRIBUTION.md](ATTRIBUTION.md). Unabhängig von KORG und Hacktribe.
 
 Formatquellen: [Oe2sSLE](https://github.com/JonathanTaquet/Oe2sSLE), [elecmidi](https://github.com/rafamj/elecmidi/blob/main/elecmidi.h), [Elfer](https://github.com/maks/elfer), [Hacktribe](https://github.com/bangcorrupt/hacktribe/wiki/How-To), [Sample-Dateiformat](https://github.com/untergeekDE/electribe2-docs/blob/main/e2sSample-all-file-format.md).
+
