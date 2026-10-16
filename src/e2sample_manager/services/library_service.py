@@ -155,30 +155,29 @@ class LibraryService:
         self._saved_state_id = self._state_id
         return path
 
-    def update_metadata(self, slot: int, **values: Any) -> Sample:
+    def update_metadata(self, source_slot: int, **values: Any) -> Sample:
         """Atomically update editable metadata and retain undo support."""
 
         if "sample_rate" in values:
             raise ServiceError(
                 "Die Samplerate ist schreibgeschützt. Audio bei Bedarf neu importieren."
             )
-        sample = self.require_sample(slot)
+        sample = self.require_sample(source_slot)
 
         def operation() -> Sample:
             metadata = sample.metadata
             old_slot = metadata.slot
+            target = values.get("slot", old_slot)
+            if target != old_slot:
+                if not self.profile.accepts_slot(target):
+                    raise ServiceError(f"Slot {target} ist für {self.profile.name} ungültig.")
+                if self.library.by_slot(target) is not None:
+                    raise ServiceError(f"Slot {target} ist bereits belegt.")
             for name, value in values.items():
                 if not hasattr(metadata, name):
                     raise ServiceError(f"Unbekanntes Metadatenfeld: {name}")
                 setattr(metadata, name, value)
             if metadata.slot != old_slot:
-                if not self.profile.accepts_slot(metadata.slot):
-                    raise ServiceError(
-                        f"Slot {metadata.slot} ist für {self.profile.name} ungültig."
-                    )
-                occupied = self.library.by_slot(metadata.slot)
-                if occupied is not None and occupied is not sample:
-                    raise ServiceError(f"Slot {metadata.slot} ist bereits belegt.")
                 self.library.samples.sort(key=lambda item: item.metadata.slot)
                 self._remap_patterns({old_slot: metadata.slot})
             EsliCodec._validate_metadata(metadata)

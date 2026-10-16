@@ -31,7 +31,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "--ui-self-test" in arguments:
         from e2sample_manager.selftest import run_ui
 
-        report = run_ui()
+        bank_path = next(
+            (a.split("=", 1)[1] for a in arguments if a.startswith("--ui-test-bank=")), None
+        )
+        report = run_ui(bank_path)
         destination = next(
             (a.split("=", 1)[1] for a in arguments if a.startswith("--self-test-report=")), None
         )

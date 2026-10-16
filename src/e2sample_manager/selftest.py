@@ -30,9 +30,9 @@ def run() -> str:
     )
 
 
-def run_ui() -> str:
+def run_ui(bank_path: str | None = None) -> str:
     """Exercise real Qt delegates and document replacement in an isolated process."""
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QEvent, Qt
     from PySide6.QtTest import QAbstractItemModelTester, QTest
     from PySide6.QtWidgets import QApplication, QLineEdit, QMessageBox
 
@@ -63,6 +63,25 @@ def run_ui() -> str:
             )
             for model in (window.table.model, window.table.proxy)
         ]
+
+        def edit_slot(source_slot: int, target: int) -> None:
+            app.sendPostedEvents(None, QEvent.DeferredDelete)
+            row = next(
+                i
+                for i in range(window.table.model.rowCount())
+                if window.table.model.sample_at(i).metadata.slot == source_slot
+            )
+            index = window.table.proxy.mapFromSource(window.table.model.index(row, 0))
+            window.table.view.setCurrentIndex(index)
+            window.table.view.edit(index)
+            app.processEvents()
+            editor = window.table.view.findChild(QLineEdit)
+            assert editor is not None
+            editor.setText(str(target))
+            QTest.keyClick(editor, Qt.Key_Return)
+            app.processEvents()
+            assert window.service.require_sample(target).metadata.slot == target
+
         for _ in range(12):
             for name in ("many.all", "one.all", "empty.all"):
                 assert window.open_path(folder / name)
@@ -93,6 +112,13 @@ def run_ui() -> str:
                 window.redo()
                 app.processEvents()
         assert window.open_path(folder / "one.all")
+        edit_slot(501, 905)
+        window.undo()
+        window.redo()
+        window.service.delete([905])
+        window._refresh()
+        assert window.table.model.rowCount() == 0
+        assert window.open_path(folder / "one.all")
         item = window.service.require_sample(501)
         dialog = WaveformEditorDialog(window.service, window.audio, item, window)
         dialog.changed.connect(window._changed)
@@ -111,6 +137,32 @@ def run_ui() -> str:
         finally:
             QMessageBox.question = original_question
         dialog.close()
+        if bank_path is not None:
+            # The supplied bank is only read; all edited copies stay in this temp folder.
+            assert window.open_path(bank_path)
+            for _ in range(3):
+                if window.service.library.by_slot(905) is not None:
+                    window.service.delete([905])
+                    window._refresh()
+                source_slot = next(
+                    s.metadata.slot
+                    for s in window.service.library.samples
+                    if s.metadata.slot != 905
+                )
+                original_audio = window.service.require_sample(source_slot).audio_data
+                edit_slot(source_slot, 905)
+                assert window.service.library.by_slot(source_slot) is None
+                assert window.service.require_sample(905).audio_data == original_audio
+                window.undo()
+                window.redo()
+                window.service.save_as(folder / "edited-bank.all")
+                loaded = E2SAllFile.load(folder / "edited-bank.all")
+                assert loaded.by_slot(905).audio_data == original_audio
+                window.service.delete([905])
+                window._refresh()
+                app.processEvents()
         window.close()
         assert testers and errors  # Invalid tune was rejected without losing the editor.
-    return "PASS: 36 bank changes, delegate edits, invalid values, undo/redo and waveform trim."
+    return "PASS: 36 bank changes, delegate edits, invalid values, undo/redo and waveform trim." + (
+        " Supplied bank: 3 slot-905 edit/save/reload/delete cycles passed." if bank_path else ""
+    )
